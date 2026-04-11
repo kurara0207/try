@@ -8,7 +8,7 @@ type LogoMode = 'preset' | 'text' | 'upload';
 type AppData  = {
   store: string; address: string; items: Item[]; motto: string;
   logoMode: LogoMode; logoText: string; logoPreset: string; orderNo: string;
-  taxRate: number; madeWith: string;
+  madeWith: string;
   inkColor: string; vintage: boolean; useQR: boolean;
 };
 
@@ -207,9 +207,8 @@ export default function Page() {
   const [items,        setItems]        = useState([
     { name:'拥抱', price:0 }, { name:'冷战', price:99 }, { name:'复合', price:999 },
   ]);
-  const [motto,        setMotto]        = useState('原来我在你这里的价格，\n是这样算的。');
+  const [motto,        setMotto]        = useState('喜欢一个人，\n是一件没有收据的消费。');
   const [orderNo,      setOrderNo]      = useState(() => Math.random().toString(36).slice(2,10).toUpperCase());
-  const [taxRate,      setTaxRate]      = useState(10);
   const [madeWith,     setMadeWith]     = useState('made with 💔');
   // ── new feature states ────────────────────────────────────────────────────
   const [inkColor,     setInkColor]     = useState('#1a1410');
@@ -230,14 +229,14 @@ export default function Page() {
   // Generate QR code from share link whenever relevant state changes
   useEffect(() => {
     if (!useQR || typeof window === 'undefined') { setQrDataUrl(''); return; }
-    const data = enc({ store, address, items, motto, logoMode, logoText, logoPreset, orderNo, taxRate, madeWith, inkColor, vintage, useQR });
+    const data = enc({ store, address, items, motto, logoMode, logoText, logoPreset, orderNo, madeWith, inkColor, vintage, useQR });
     const url  = `${window.location.origin}${window.location.pathname}?data=${data}`;
     import('qrcode').then(({ default: QRCode }) => {
       QRCode.toDataURL(url, { width:120, margin:1, color:{ dark:inkColor, light:'#00000000' } })
         .then(setQrDataUrl).catch(() => {});
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [useQR, store, address, items, motto, logoMode, logoText, logoPreset, orderNo, taxRate, madeWith, inkColor]);
+  }, [useQR, store, address, items, motto, logoMode, logoText, logoPreset, orderNo, madeWith, inkColor]);
 
   // Load URL state
   useEffect(() => {
@@ -251,7 +250,6 @@ export default function Page() {
     if (d.logoText)   setLogoText(d.logoText);
     if (d.logoPreset) setLogoPreset(d.logoPreset);
     if (d.orderNo)    setOrderNo(d.orderNo);
-    if (d.taxRate !== undefined) setTaxRate(d.taxRate);
     if (d.madeWith)   setMadeWith(d.madeWith);
     if (d.inkColor)   setInkColor(d.inkColor);
     if (d.vintage !== undefined) setVintage(d.vintage);
@@ -263,12 +261,10 @@ export default function Page() {
   const updateItem = (i: number, k: string, v: string) =>
     setItems(p => { const n=[...p]; n[i]={...n[i],[k]:k==='price'?parseFloat(v)||0:v}; return n; });
 
-  const subtotal  = items.reduce((s,x)=>s+(x.price||0), 0);
-  const taxAmount = subtotal * taxRate / 100;
-  const total     = subtotal + taxAmount;
+  const total = items.reduce((s,x)=>s+(x.price||0), 0);
 
   const generateLink = () => {
-    const data = enc({ store, address, items, motto, logoMode, logoText, logoPreset, orderNo, taxRate, madeWith, inkColor, vintage, useQR });
+    const data = enc({ store, address, items, motto, logoMode, logoText, logoPreset, orderNo, madeWith, inkColor, vintage, useQR });
     navigator.clipboard.writeText(`${location.origin}${location.pathname}?data=${data}`)
       .then(() => { setCopied(true); setTimeout(()=>setCopied(false), 2000); });
   };
@@ -415,7 +411,7 @@ export default function Page() {
             </div>
           </Field>
 
-          <Field label="商品 / 税前价格">
+          <Field label="商品 / 价格">
             {items.map((item,i)=>(
               <div key={i} style={{display:'flex',gap:'8px',marginBottom:'8px',alignItems:'center'}}>
                 <input className={INP} style={{flex:1}} value={item.name} onChange={e=>updateItem(i,'name',e.target.value)} placeholder="商品名"/>
@@ -424,15 +420,6 @@ export default function Page() {
               </div>
             ))}
             <button onClick={addItem} style={{fontSize:'12px',color:'#bbb',background:'none',border:'none',cursor:'pointer',marginTop:'4px'}}>＋ 添加一行</button>
-          </Field>
-
-          <Field label={`税率（${taxRate}%，0 = 不含税）`}>
-            <div style={{display:'flex',alignItems:'center',gap:'12px'}}>
-              <input className={INP} type="number" min={0} max={100} step={1} value={taxRate}
-                onChange={e=>setTaxRate(Math.max(0,Math.min(100,parseFloat(e.target.value)||0)))}
-                style={{width:'100px'}}/>
-              <span style={{fontSize:'11px',color:'#aaa'}}>%　税额 ¥{taxAmount.toFixed(2)}</span>
-            </div>
           </Field>
 
           <Field label="票据号">
@@ -518,17 +505,9 @@ export default function Page() {
 
               <hr className="rcpt-hr"/>
 
-              {/* Tax / Total */}
-              {taxRate > 0 && <>
-                <div className="rcpt-tax" style={{marginBottom:'2px'}}>
-                  <span>SUBTOTAL（税前）</span><span>¥{subtotal.toFixed(2)}</span>
-                </div>
-                <div className="rcpt-tax" style={{marginBottom:'4px'}}>
-                  <span>TAX（{taxRate}%）</span><span>¥{taxAmount.toFixed(2)}</span>
-                </div>
-              </>}
+              {/* Total */}
               <div className="rcpt-total">
-                <span>{taxRate>0?'TOTAL（含税）':'TOTAL'}</span>
+                <span>TOTAL</span>
                 <span>¥{total.toFixed(2)}</span>
               </div>
 
