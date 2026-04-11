@@ -195,6 +195,79 @@ const PRESETS = [
   </svg>` },
 ];
 
+// ─── Canvas paper texture generator ─────────────────────────────────────────
+function clamp(v: number) { return Math.min(255, Math.max(0, Math.round(v))); }
+
+function createPaperTexture(w: number, h: number): string {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const ctx = c.getContext('2d')!;
+
+  // Layer 1: warm cream base with subtle horizontal gradient
+  const baseGrad = ctx.createLinearGradient(0, 0, 0, h);
+  baseGrad.addColorStop(0,   '#faf6ef');
+  baseGrad.addColorStop(0.5, '#f8f3ea');
+  baseGrad.addColorStop(1,   '#f5f0e8');
+  ctx.fillStyle = baseGrad;
+  ctx.fillRect(0, 0, w, h);
+
+  // Layer 2: pixel-level grain (warm noise, not pure gray)
+  const img = ctx.getImageData(0, 0, w, h);
+  const d = img.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const g = (Math.random() - 0.5) * 28;
+    d[i]   = clamp(d[i]   + g * 1.0);
+    d[i+1] = clamp(d[i+1] + g * 0.88);
+    d[i+2] = clamp(d[i+2] + g * 0.65);
+  }
+  ctx.putImageData(img, 0, 0);
+
+  // Layer 3: horizontal paper fibers (long, semi-transparent)
+  for (let y = 0; y < h; y++) {
+    if (Math.random() > 0.78) {
+      const alpha = Math.random() * 0.055 + 0.008;
+      const lum   = Math.random() > 0.5 ? `rgba(200,170,110,${alpha})` : `rgba(80,55,20,${alpha * 0.6})`;
+      ctx.strokeStyle = lum;
+      ctx.lineWidth   = Math.random() < 0.25 ? 0.7 : 0.25;
+      ctx.beginPath();
+      // Slight waviness for organic feel
+      ctx.moveTo(0, y + (Math.random() - 0.5) * 0.6);
+      ctx.bezierCurveTo(
+        w * 0.3, y + (Math.random() - 0.5) * 0.8,
+        w * 0.7, y + (Math.random() - 0.5) * 0.8,
+        w,       y + (Math.random() - 0.5) * 0.6
+      );
+      ctx.stroke();
+    }
+  }
+
+  // Layer 4: short diagonal fiber flecks
+  ctx.save();
+  for (let i = 0; i < 40; i++) {
+    const x   = Math.random() * w;
+    const y   = Math.random() * h;
+    const len = Math.random() * 22 + 4;
+    const ang = (Math.random() - 0.5) * 0.5;
+    ctx.strokeStyle = `rgba(130,95,45,${Math.random() * 0.035 + 0.008})`;
+    ctx.lineWidth   = Math.random() * 0.5 + 0.15;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + Math.cos(ang) * len, y + Math.sin(ang) * len);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // Layer 5: radial vignette (paper darkens at edges — natural light effect)
+  const vg = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, Math.max(w, h) * 0.72);
+  vg.addColorStop(0,   'rgba(0,0,0,0)');
+  vg.addColorStop(0.7, 'rgba(10,5,0,0.015)');
+  vg.addColorStop(1,   'rgba(30,15,0,0.07)');
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, w, h);
+
+  return c.toDataURL('image/png');
+}
+
 // ─── iOS-safe image: FileReader already gives base64 ─────────────────────────
 function loadImageAsBase64(src: string): Promise<string> {
   return new Promise((resolve) => {
@@ -284,8 +357,14 @@ export default function Page() {
   const [orderNo,  setOrderNo]  = useState(() => Math.random().toString(36).slice(2,10).toUpperCase());
   const [taxRate,  setTaxRate]  = useState(10);   // percent, 0 = no tax
   const [madeWith, setMadeWith] = useState('made with 💔');
-  const [copied,   setCopied]   = useState(false);
-  const [exporting,setExporting]= useState(false);
+  const [copied,       setCopied]      = useState(false);
+  const [exporting,    setExporting]   = useState(false);
+  const [paperTexture, setPaperTexture]= useState<string>('');
+
+  // Generate canvas paper texture once on mount
+  useEffect(() => {
+    setPaperTexture(createPaperTexture(560, 1600));
+  }, []);
 
   // Load URL state
   useEffect(() => {
@@ -355,11 +434,9 @@ export default function Page() {
 
   const paperStyle: React.CSSProperties = {
     width: '280px',
-    background: `
-      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23n)' opacity='0.12'/%3E%3C/svg%3E"),
-      repeating-linear-gradient(0deg, transparent 0px, transparent 3px, rgba(150,120,70,0.03) 3px, rgba(150,120,70,0.03) 4px),
-      #f8f4ed
-    `,
+    background: paperTexture
+      ? `url(${paperTexture}) center/cover`
+      : '#f8f4ed',
     position: 'relative',
     fontFamily: "'DotGothic16', 'Noto Sans JP', 'Noto Sans KR', 'Noto Sans SC', monospace",
   };
