@@ -12,9 +12,18 @@ type AppData  = {
   inkColor: string; vintage: boolean; useQR: boolean;
 };
 
-function enc(d: AppData) { return btoa(unescape(encodeURIComponent(JSON.stringify(d)))); }
+function enc(d: AppData): string {
+  const bytes = new TextEncoder().encode(JSON.stringify(d));
+  let bin = '';
+  bytes.forEach(b => (bin += String.fromCharCode(b)));
+  return btoa(bin);
+}
 function dec(s: string): AppData | null {
-  try { return JSON.parse(decodeURIComponent(escape(atob(s)))); } catch { return null; }
+  try {
+    const bin   = atob(s);
+    const bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
+    return JSON.parse(new TextDecoder().decode(bytes));
+  } catch { return null; }
 }
 
 // ─── EAN-13 barcode ───────────────────────────────────────────────────────────
@@ -269,17 +278,17 @@ export default function Page() {
     if (!receiptRef.current || printing || exporting) return;
     // 1. Play thermal scan animation
     setPrinting(true);
-    await new Promise(r => setTimeout(r, 1500));
+    await new Promise<void>(r => setTimeout(r, 1500));
     setPrinting(false);
     // 2. Wait one frame so React removes the scan-line div before capture
-    await new Promise(r => requestAnimationFrame(r));
-    await new Promise(r => setTimeout(r, 30));
+    await new Promise<void>(r => requestAnimationFrame(() => r()));
+    await new Promise<void>(r => setTimeout(r, 30));
     // 3. Export
     setExporting(true);
     try {
       if (logoMode==='upload' && logoImg && !logoImg.startsWith('data:')) {
         const safe = await loadImageAsBase64(logoImg); setLogoImg(safe);
-        await new Promise(r => setTimeout(r, 150));
+        await new Promise<void>(r => setTimeout(r, 150));
       }
       const url = await toPng(receiptRef.current, { cacheBust:true, pixelRatio:3 });
       const a = document.createElement('a');

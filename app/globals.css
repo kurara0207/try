@@ -2,8 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=DotGothic16&family=Noto+Sans+JP:wght@400;700&family=Noto+Sans+KR:wght@400;700&family=Noto+Sans+SC:wght@400;700&display=swap');
-
 /* ─── Receipt ───────────────────────────────────────────────────────────── */
 .rcpt-wrap {
   font-family: 'DotGothic16','Noto Sans JP','Noto Sans KR','Noto Sans SC',monospace;
