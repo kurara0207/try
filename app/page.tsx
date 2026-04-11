@@ -7,8 +7,9 @@ type Item     = { name: string; price: number };
 type LogoMode = 'preset' | 'text' | 'upload';
 type AppData  = {
   store: string; address: string; items: Item[]; motto: string;
-  guests: number; logoMode: LogoMode; logoText: string;
+  logoMode: LogoMode; logoText: string;
   logoPreset: string; orderNo: string;
+  taxRate: number; madeWith: string;
 };
 
 function enc(d: AppData) { return btoa(unescape(encodeURIComponent(JSON.stringify(d)))); }
@@ -27,10 +28,10 @@ function makeEAN(digits: string): string {
   return b + '101';
 }
 
-// ─── Pixel SVG presets (32×32 grid, clean line-art style like ref image 1) ────
+// ─── Pixel SVG presets (32×32 grid) ──────────────────────────────────────────
 const PRESETS = [
   { id:'drip',    label:'手冲壶', svg: `<svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
-    <rect x="13" y="0" w="2" h="1"/><rect x="15" y="0" width="2" height="1" fill="currentColor"/>
+    <rect x="13" y="0" width="2" height="1" fill="currentColor"/><rect x="15" y="0" width="2" height="1" fill="currentColor"/>
     <rect x="11" y="1" width="2" height="1" fill="currentColor"/><rect x="17" y="1" width="2" height="1" fill="currentColor"/>
     <rect x="11" y="2" width="2" height="1" fill="currentColor"/><rect x="17" y="2" width="2" height="1" fill="currentColor"/>
     <rect x="8" y="3" width="16" height="1" fill="currentColor"/>
@@ -40,7 +41,6 @@ const PRESETS = [
     <rect x="7" y="13" width="18" height="1" fill="currentColor"/>
     <rect x="5" y="14" width="22" height="1" fill="currentColor"/>
     <rect x="4" y="15" width="24" height="8" fill="currentColor"/>
-    <rect x="5" y="16" width="22" height="6" fill="none"/>
     <rect x="5" y="16" width="22" height="6" fill="white" opacity="0.15"/>
     <rect x="4" y="23" width="24" height="1" fill="currentColor"/>
     <rect x="5" y="24" width="22" height="1" fill="currentColor"/>
@@ -195,7 +195,7 @@ const PRESETS = [
   </svg>` },
 ];
 
-// ─── iOS-safe image: FileReader already gives base64, but handle blob URLs ────
+// ─── iOS-safe image: FileReader already gives base64 ─────────────────────────
 function loadImageAsBase64(src: string): Promise<string> {
   return new Promise((resolve) => {
     if (src.startsWith('data:')) { resolve(src); return; }
@@ -212,6 +212,53 @@ function loadImageAsBase64(src: string): Promise<string> {
   });
 }
 
+// ─── SVG scalloped edges (smooth, mask-based) ────────────────────────────────
+function ScallopTop({ width = 280 }: { width?: number }) {
+  const toothW = 14;
+  const n = Math.ceil(width / toothW);
+  const w = n * toothW;
+  // Arch path: traces scallop arches at top (these become transparent holes)
+  let archPath = `M0,14`;
+  for (let i = 0; i < n; i++) {
+    archPath += ` Q${i * toothW + toothW / 2},0 ${(i + 1) * toothW},14`;
+  }
+  archPath += ` L${w},14 L0,14 Z`;
+  return (
+    <svg width={width} height={14} viewBox={`0 0 ${width} 14`} style={{ display: 'block' }}>
+      <defs>
+        <mask id="rcpt-top-mask">
+          <rect width={w} height={14} fill="white" />
+          <path d={archPath} fill="black" />
+        </mask>
+      </defs>
+      <rect width={w} height={14} fill="#f8f4ed" mask="url(#rcpt-top-mask)" />
+    </svg>
+  );
+}
+
+function ScallopBottom({ width = 280 }: { width?: number }) {
+  const toothW = 14;
+  const n = Math.ceil(width / toothW);
+  const w = n * toothW;
+  // Arch path: traces scallop arches at bottom
+  let archPath = `M0,0`;
+  for (let i = 0; i < n; i++) {
+    archPath += ` Q${i * toothW + toothW / 2},14 ${(i + 1) * toothW},0`;
+  }
+  archPath += ` L${w},0 L0,0 Z`;
+  return (
+    <svg width={width} height={14} viewBox={`0 0 ${width} 14`} style={{ display: 'block' }}>
+      <defs>
+        <mask id="rcpt-bot-mask">
+          <rect width={w} height={14} fill="white" />
+          <path d={archPath} fill="black" />
+        </mask>
+      </defs>
+      <rect width={w} height={14} fill="#f8f4ed" mask="url(#rcpt-bot-mask)" />
+    </svg>
+  );
+}
+
 const INP = "border border-gray-200 p-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-200 w-full text-sm bg-white";
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return <div className="mb-4"><label className="text-xs text-gray-400 mb-1.5 block font-medium">{label}</label>{children}</div>;
@@ -219,8 +266,8 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 export default function Page() {
-  const receiptRef    = useRef<HTMLDivElement>(null);
-  const logoInputRef  = useRef<HTMLInputElement>(null);
+  const receiptRef   = useRef<HTMLDivElement>(null);
+  const logoInputRef = useRef<HTMLInputElement>(null);
 
   const [store,      setStore]      = useState('LOVE STORE');
   const [address,    setAddress]    = useState('');
@@ -228,16 +275,17 @@ export default function Page() {
   const [logoText,   setLogoText]   = useState('♥');
   const [logoPreset, setLogoPreset] = useState('drip');
   const [logoImg,    setLogoImg]    = useState<string|null>(null);
-  const [guests,     setGuests]     = useState(2);
   const [items,      setItems]      = useState<Item[]>([
     { name: '拥抱', price: 0 },
     { name: '冷战', price: 99 },
     { name: '复合', price: 999 },
   ]);
-  const [motto,      setMotto]      = useState('原来我在你这里的价格，\n是这样算的。');
-  const [orderNo,    setOrderNo]    = useState(() => Math.random().toString(36).slice(2,10).toUpperCase());
-  const [copied,     setCopied]     = useState(false);
-  const [exporting,  setExporting]  = useState(false);
+  const [motto,    setMotto]    = useState('原来我在你这里的价格，\n是这样算的。');
+  const [orderNo,  setOrderNo]  = useState(() => Math.random().toString(36).slice(2,10).toUpperCase());
+  const [taxRate,  setTaxRate]  = useState(10);   // percent, 0 = no tax
+  const [madeWith, setMadeWith] = useState('made with 💔');
+  const [copied,   setCopied]   = useState(false);
+  const [exporting,setExporting]= useState(false);
 
   // Load URL state
   useEffect(() => {
@@ -247,11 +295,12 @@ export default function Page() {
     if (d.address)    setAddress(d.address);
     if (d.items)      setItems(d.items);
     if (d.motto)      setMotto(d.motto);
-    if (d.guests)     setGuests(d.guests);
     if (d.logoMode)   setLogoMode(d.logoMode);
     if (d.logoText)   setLogoText(d.logoText);
     if (d.logoPreset) setLogoPreset(d.logoPreset);
     if (d.orderNo)    setOrderNo(d.orderNo);
+    if (d.taxRate !== undefined) setTaxRate(d.taxRate);
+    if (d.madeWith)   setMadeWith(d.madeWith);
   }, []);
 
   const addItem    = () => setItems(p => [...p, { name:'', price:0 }]);
@@ -259,11 +308,12 @@ export default function Page() {
   const updateItem = (i: number, k: string, v: string) =>
     setItems(p => { const n=[...p]; n[i]={...n[i],[k]:k==='price'?parseFloat(v)||0:v}; return n; });
 
-  const total     = items.reduce((s,x)=>s+(x.price||0), 0);
-  const perPerson = guests > 0 ? total/guests : total;
+  const subtotal  = items.reduce((s,x)=>s+(x.price||0), 0);
+  const taxAmount = subtotal * taxRate / 100;
+  const total     = subtotal + taxAmount;
 
   const generateLink = () => {
-    const data = enc({ store, address, items, motto, guests, logoMode, logoText, logoPreset, orderNo });
+    const data = enc({ store, address, items, motto, logoMode, logoText, logoPreset, orderNo, taxRate, madeWith });
     navigator.clipboard.writeText(`${location.origin}${location.pathname}?data=${data}`)
       .then(() => { setCopied(true); setTimeout(()=>setCopied(false), 2000); });
   };
@@ -272,7 +322,6 @@ export default function Page() {
     if (!receiptRef.current) return;
     setExporting(true);
     try {
-      // Ensure uploaded image is base64 (iOS-safe)
       if (logoMode === 'upload' && logoImg && !logoImg.startsWith('data:')) {
         const safe = await loadImageAsBase64(logoImg);
         setLogoImg(safe);
@@ -293,7 +342,7 @@ export default function Page() {
     const file = e.target.files?.[0]; if (!file) return;
     const reader = new FileReader();
     reader.onload = ev => { setLogoImg(ev.target?.result as string); setLogoMode('upload'); };
-    reader.readAsDataURL(file); // base64 from start — iOS safe
+    reader.readAsDataURL(file);
   }, []);
 
   const now     = new Date();
@@ -304,10 +353,13 @@ export default function Page() {
   const barsBinary    = makeEAN(barcodeDigits);
   const preset        = PRESETS.find(p=>p.id===logoPreset) ?? PRESETS[0];
 
-  // Paper shadow layers — ref image 2 style
   const paperStyle: React.CSSProperties = {
     width: '280px',
-    background: '#f8f4ed',
+    background: `
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23n)' opacity='0.12'/%3E%3C/svg%3E"),
+      repeating-linear-gradient(0deg, transparent 0px, transparent 3px, rgba(150,120,70,0.03) 3px, rgba(150,120,70,0.03) 4px),
+      #f8f4ed
+    `,
     position: 'relative',
     fontFamily: "'DotGothic16', 'Noto Sans JP', 'Noto Sans KR', 'Noto Sans SC', monospace",
   };
@@ -315,9 +367,8 @@ export default function Page() {
   return (
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=DotGothic16&family=Noto+Sans+JP:wght@400;700&family=Noto+Sans+KR:wght@400;700&family=Noto+Sans+SC:wght@400;700&family=Ma+Shan+Zheng&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=DotGothic16&family=Noto+Sans+JP:wght@400;700&family=Noto+Sans+KR:wght@400;700&family=Noto+Sans+SC:wght@400;700&display=swap');
 
-        /* DotGothic16: pixel style covering JP/KR/CN/EN */
         .rcpt-wrap {
           font-family: 'DotGothic16','Noto Sans JP','Noto Sans KR','Noto Sans SC',monospace;
           font-size: 10px;
@@ -325,21 +376,30 @@ export default function Page() {
           color: #111;
           letter-spacing: 0.03em;
         }
-        .rcpt-store  { font-size: 14px; font-weight: 700; letter-spacing: 0.18em; text-align: center; }
-        .rcpt-addr   { font-size: 9px;  color: #666; text-align: center; letter-spacing: 0.05em; }
-        .rcpt-meta   { font-size: 8px;  color: #888; letter-spacing: 0.06em; }
-        .rcpt-item   { font-size: 10px; display:flex; justify-content:space-between; padding:3px 0; }
-        .rcpt-total  { font-size: 13px; font-weight:700; display:flex; justify-content:space-between; padding:5px 0; }
-        .rcpt-per    { font-size: 8px;  color:#888; display:flex; justify-content:space-between; }
-        .rcpt-motto  { font-size: 16px; font-weight:700; text-align:center; line-height:1.6; letter-spacing:0.04em; color:#111; }
-        .rcpt-sub    { font-size: 9px;  color:#666; text-align:center; letter-spacing:0.06em; }
+        .rcpt-store  { font-size: 14px; font-weight: 700; letter-spacing: 0.18em; text-align: center; font-family: 'DotGothic16',monospace; }
+        .rcpt-addr   { font-size: 9px;  color: #666; text-align: center; letter-spacing: 0.05em; font-family: 'DotGothic16',monospace; }
+        .rcpt-meta   { font-size: 8px;  color: #888; letter-spacing: 0.06em; font-family: 'DotGothic16',monospace; }
+        .rcpt-item   { font-size: 10px; display:flex; justify-content:space-between; padding:3px 0; font-family: 'DotGothic16',monospace; }
+        .rcpt-total  { font-size: 13px; font-weight:700; display:flex; justify-content:space-between; padding:5px 0; font-family: 'DotGothic16',monospace; }
+        .rcpt-tax    { font-size: 9px;  color:#888; display:flex; justify-content:space-between; font-family: 'DotGothic16',monospace; }
+        .rcpt-motto  { font-size: 16px; font-weight:700; text-align:center; line-height:1.6; letter-spacing:0.04em; color:#111; font-family: 'DotGothic16','Noto Sans JP','Noto Sans KR','Noto Sans SC',monospace; }
+        .rcpt-sub    { font-size: 9px;  color:#666; text-align:center; letter-spacing:0.06em; font-family: 'DotGothic16',monospace; }
         .rcpt-hr     { border:none; border-top:1px dashed #aaa; margin:8px 0; }
         .rcpt-hr-solid { border:none; border-top:1px solid #aaa; margin:6px 0; }
-        .logo-hw     { font-family:'Ma Shan Zheng',cursive; font-size:44px; line-height:1; color:#111; text-align:center; }
+
+        /* Logo text mode — pixel font, consistent with receipt */
+        .logo-pixel {
+          font-family: 'DotGothic16', monospace;
+          font-size: 40px;
+          line-height: 1;
+          color: #111;
+          text-align: center;
+          letter-spacing: 0.08em;
+        }
 
         /* Control panel */
         .tab-pill { display:flex; background:#f1ede6; border-radius:10px; padding:3px; gap:2px; margin-bottom:12px; }
-        .tab-pill button { flex:1; padding:7px 4px; border:none; border-radius:8px; font-size:12px; cursor:pointer; background:transparent; color:#888; transition:all .15s; font-family:inherit; }
+        .tab-pill button { flex:1; padding:7px 4px; border:none; border-radius:8px; font-size:12px; cursor:pointer; background:transparent; color:#888; transition:all .15s; font-family:'DotGothic16',inherit; }
         .tab-pill button.on { background:#fff; color:#111; box-shadow:0 1px 4px rgba(0,0,0,0.1); }
         .preset-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; }
         .preset-btn { display:flex; flex-direction:column; align-items:center; gap:4px; padding:8px 2px 6px; border-radius:10px; border:2px solid transparent; cursor:pointer; background:transparent; transition:all .15s; }
@@ -348,19 +408,10 @@ export default function Page() {
         .preset-btn span   { font-size:9px; color:#999; font-family:'DotGothic16',monospace; }
         .preset-btn svg    { display:block; }
 
-        /* Receipt paper shadow — ref image 2 */
+        /* Receipt paper shadow */
         .paper-wrap {
           position: relative;
-          filter: drop-shadow(0 2px 12px rgba(0,0,0,0.18)) drop-shadow(0 1px 3px rgba(0,0,0,0.1));
-        }
-        /* Subtle noise texture overlay */
-        .paper-wrap::after {
-          content:'';
-          position:absolute;
-          inset:0;
-          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='0.055'/%3E%3C/svg%3E");
-          pointer-events:none;
-          border-radius:2px;
+          filter: drop-shadow(0 4px 18px rgba(0,0,0,0.22)) drop-shadow(0 1px 4px rgba(0,0,0,0.12));
         }
       `}</style>
 
@@ -392,7 +443,7 @@ export default function Page() {
             {logoMode==='text' && (
               <div>
                 <input className={INP} value={logoText} onChange={e=>setLogoText(e.target.value)} placeholder="♥  输入文字或 Emoji" maxLength={6} />
-                <p style={{ fontSize:'10px', color:'#bbb', marginTop:'6px' }}>将以毛笔手写风格显示在小票上</p>
+                <p style={{ fontSize:'10px', color:'#bbb', marginTop:'6px', fontFamily:"'DotGothic16',monospace" }}>将以像素字体显示在小票上</p>
               </div>
             )}
             {logoMode==='upload' && (
@@ -416,16 +467,7 @@ export default function Page() {
             <input className={INP} value={address} onChange={e=>setAddress(e.target.value)} placeholder="例：东京·银座 / Café de Paris" />
           </Field>
 
-          <Field label="人数">
-            <div style={{ display:'flex', alignItems:'center', gap:'12px' }}>
-              <button onClick={()=>setGuests(g=>Math.max(1,g-1))} style={{ width:'36px', height:'36px', borderRadius:'50%', border:'1.5px solid #ddd', background:'transparent', fontSize:'18px', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'#555' }}>−</button>
-              <span style={{ fontSize:'16px', fontWeight:700, minWidth:'24px', textAlign:'center' }}>{guests}</span>
-              <button onClick={()=>setGuests(g=>g+1)} style={{ width:'36px', height:'36px', borderRadius:'50%', border:'1.5px solid #ddd', background:'transparent', fontSize:'18px', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'#555' }}>+</button>
-              <span style={{ fontSize:'11px', color:'#aaa' }}>人 · 人均 ¥{perPerson.toFixed(2)}</span>
-            </div>
-          </Field>
-
-          <Field label="商品 / 价格">
+          <Field label="商品 / 税前价格">
             {items.map((item,i)=>(
               <div key={i} style={{ display:'flex', gap:'8px', marginBottom:'8px', alignItems:'center' }}>
                 <input className={INP} style={{ flex:1 }} value={item.name} onChange={e=>updateItem(i,'name',e.target.value)} placeholder="商品名" />
@@ -434,6 +476,22 @@ export default function Page() {
               </div>
             ))}
             <button onClick={addItem} style={{ fontSize:'12px', color:'#bbb', background:'none', border:'none', cursor:'pointer', marginTop:'4px' }}>＋ 添加一行</button>
+          </Field>
+
+          <Field label={`税率（当前 ${taxRate}%，0 = 不含税）`}>
+            <div style={{ display:'flex', alignItems:'center', gap:'12px' }}>
+              <input
+                className={INP}
+                type="number"
+                min={0}
+                max={100}
+                step={1}
+                value={taxRate}
+                onChange={e=>setTaxRate(Math.max(0, Math.min(100, parseFloat(e.target.value)||0)))}
+                style={{ width:'100px' }}
+              />
+              <span style={{ fontSize:'11px', color:'#aaa' }}>%　税额 ¥{taxAmount.toFixed(2)}</span>
+            </div>
           </Field>
 
           <Field label="票据号（自定义）">
@@ -447,11 +505,15 @@ export default function Page() {
             <textarea className={INP} value={motto} onChange={e=>setMotto(e.target.value)} placeholder="写下你想说的话…" style={{ resize:'none', height:'72px', fontSize:'12px', lineHeight:1.7 }} />
           </Field>
 
+          <Field label="底部署名（made with …）">
+            <input className={INP} value={madeWith} onChange={e=>setMadeWith(e.target.value)} placeholder="made with 💔" maxLength={40} />
+          </Field>
+
           <div style={{ display:'flex', gap:'10px', marginTop:'8px' }}>
-            <button onClick={generateLink} style={{ flex:1, padding:'14px', borderRadius:'14px', fontSize:'13px', fontWeight:700, color:'#fff', background:copied?'#3a9e6a':'#4a7fcc', border:'none', cursor:'pointer', transition:'all .15s', fontFamily:'inherit' }}>
+            <button onClick={generateLink} style={{ flex:1, padding:'14px', borderRadius:'14px', fontSize:'13px', fontWeight:700, color:'#fff', background:copied?'#3a9e6a':'#4a7fcc', border:'none', cursor:'pointer', transition:'all .15s', fontFamily:"'DotGothic16',inherit" }}>
               {copied ? '✓ 链接已复制' : '🔗 分享链接'}
             </button>
-            <button onClick={exportImage} disabled={exporting} style={{ flex:1, padding:'14px', borderRadius:'14px', fontSize:'13px', fontWeight:700, color:'#fff', background:'#c0445a', border:'none', cursor:'pointer', opacity:exporting?.6:1, transition:'all .15s', fontFamily:'inherit' }}>
+            <button onClick={exportImage} disabled={exporting} style={{ flex:1, padding:'14px', borderRadius:'14px', fontSize:'13px', fontWeight:700, color:'#fff', background:'#c0445a', border:'none', cursor:'pointer', opacity:exporting?.6:1, transition:'all .15s', fontFamily:"'DotGothic16',inherit" }}>
               {exporting ? '生成中…' : '📥 下载小票'}
             </button>
           </div>
@@ -461,8 +523,8 @@ export default function Page() {
         <div className="paper-wrap">
           <div ref={receiptRef} className="rcpt-wrap" style={paperStyle}>
 
-            {/* Top serrated — ref image 2/3 style */}
-            <div style={{ width:'100%', height:'14px', background:'radial-gradient(circle at 50% -1px, #f8f4ed 72%, transparent 72%) 0 0 / 14px 14px repeat-x, #ddd5c8' }} />
+            {/* Top scalloped edge */}
+            <ScallopTop width={280} />
 
             <div style={{ padding:'10px 22px 18px' }}>
 
@@ -472,11 +534,11 @@ export default function Page() {
                   ? <img src={logoImg} alt="logo" crossOrigin="anonymous" style={{ height:'64px', maxWidth:'180px', objectFit:'contain', margin:'0 auto', display:'block' }} />
                   : logoMode==='preset'
                     ? <div dangerouslySetInnerHTML={{ __html: preset.svg.replace(/viewBox="0 0 32 32"/, 'viewBox="0 0 32 32" width="64" height="64"') }} style={{ display:'inline-block', color:'#1a1410', lineHeight:0 }} />
-                    : <div className="logo-hw">{logoText||'♥'}</div>
+                    : <div className="logo-pixel">{logoText||'♥'}</div>
                 }
               </div>
 
-              {/* Store name — ref image 3: centered, tracked */}
+              {/* Store name */}
               <div className="rcpt-store" style={{ marginBottom:'3px' }}>{store||'LOVE STORE'}</div>
               {address && <div className="rcpt-addr" style={{ marginBottom:'4px' }}>{address}</div>}
 
@@ -485,7 +547,6 @@ export default function Page() {
               {/* Meta row */}
               <div className="rcpt-meta" style={{ display:'flex', justifyContent:'space-between', marginBottom:'6px' }}>
                 <span>{dateStr}　{timeStr}</span>
-                <span>GUESTS × {guests}</span>
               </div>
               <div className="rcpt-meta" style={{ marginBottom:'8px' }}>
                 <span>ORDER NO.　<span style={{ letterSpacing:'0.15em' }}>{orderNo}</span></span>
@@ -493,7 +554,7 @@ export default function Page() {
 
               <hr className="rcpt-hr" />
 
-              {/* Items — ref image 3 layout */}
+              {/* Items */}
               <div style={{ marginBottom:'4px' }}>
                 <div className="rcpt-meta" style={{ display:'flex', justifyContent:'space-between', marginBottom:'4px', color:'#999' }}>
                   <span>ITEM</span><span>AMOUNT</span>
@@ -508,10 +569,25 @@ export default function Page() {
 
               <hr className="rcpt-hr" />
 
-              <div className="rcpt-total"><span>TOTAL</span><span>¥{total.toFixed(2)}</span></div>
-              {guests>1 && <div className="rcpt-per"><span>人均 PER PERSON</span><span>¥{perPerson.toFixed(2)}</span></div>}
+              {/* Subtotal / Tax / Total */}
+              {taxRate > 0 ? (
+                <>
+                  <div className="rcpt-tax" style={{ marginBottom:'2px' }}>
+                    <span>SUBTOTAL（税前）</span>
+                    <span>¥{subtotal.toFixed(2)}</span>
+                  </div>
+                  <div className="rcpt-tax" style={{ marginBottom:'4px' }}>
+                    <span>TAX（{taxRate}%）</span>
+                    <span>¥{taxAmount.toFixed(2)}</span>
+                  </div>
+                </>
+              ) : null}
+              <div className="rcpt-total">
+                <span>{taxRate > 0 ? 'TOTAL（含税）' : 'TOTAL'}</span>
+                <span>¥{total.toFixed(2)}</span>
+              </div>
 
-              {/* Motto — ref image 3: large bold closing statement */}
+              {/* Motto */}
               {motto && (
                 <>
                   <hr className="rcpt-hr-solid" style={{ margin:'14px 0 16px' }} />
@@ -521,26 +597,22 @@ export default function Page() {
                 </>
               )}
 
-              {/* ─── EAN-13 barcode ─── */}
+              {/* EAN-13 barcode */}
               <div style={{ textAlign:'center', marginTop:'20px' }}>
-                {/* Quiet zone + bars */}
-                <div style={{ display:'inline-flex', alignItems:'flex-end', background:'#f8f4ed', padding:'0 8px' }}>
-                  {/* Left quiet zone */}
+                <div style={{ display:'inline-flex', alignItems:'flex-end', padding:'0 8px' }}>
                   <div style={{ width:'6px', height:'56px' }} />
                   {barsBinary.split('').map((bit,i)=>{
                     const isGuard = i<3||(i>=27&&i<=31)||i>91;
                     return (
                       <div key={i} style={{
                         width:'1.8px', height: isGuard?'54px':'44px',
-                        background: bit==='1'?'#111':'#f8f4ed',
+                        background: bit==='1'?'#111':'transparent',
                         flexShrink:0, alignSelf:'flex-end',
                       }} />
                     );
                   })}
-                  {/* Right quiet zone */}
                   <div style={{ width:'6px', height:'56px' }} />
                 </div>
-                {/* EAN digit groups below barcode */}
                 <div style={{ display:'flex', justifyContent:'space-between', fontSize:'7px', color:'#555', marginTop:'3px', letterSpacing:'0.18em', fontFamily:"'DotGothic16',monospace", padding:'0 8px' }}>
                   <span>{barcodeDigits[0]}</span>
                   <span>{barcodeDigits.slice(1,7).split('').join(' ')}</span>
@@ -550,12 +622,12 @@ export default function Page() {
 
               {/* Footer */}
               <div className="rcpt-sub" style={{ marginTop:'14px', borderTop:'1px solid #ddd', paddingTop:'10px' }}>
-                made with 💔
+                {madeWith || 'made with 💔'}
               </div>
             </div>
 
-            {/* Bottom serrated */}
-            <div style={{ width:'100%', height:'14px', background:'radial-gradient(circle at 50% 101%, #f8f4ed 72%, transparent 72%) 0 0 / 14px 14px repeat-x, #ddd5c8' }} />
+            {/* Bottom scalloped edge */}
+            <ScallopBottom width={280} />
           </div>
         </div>
 
